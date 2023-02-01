@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import "openzeppelin-contracts/contracts/access/Ownable.sol";
+
 
 interface ILyraDeposit {
     function initiateDeposit(address beneficiary, uint256 amountQuote) external;
@@ -16,7 +18,7 @@ interface UniswapRouter {
     ) external returns (uint256[] memory amounts);
 }
 
-contract LyraReceiver {
+contract LyraReceiver is Ownable {
     using SafeERC20 for IERC20;
     ILyraDeposit public lyraDepositAddress;
     address public depositTokenAddress;
@@ -30,7 +32,7 @@ contract LyraReceiver {
         address _receiverContract,
         uint256 _transferCost,
         UniswapRouter _uniswapRouter
-    ) {
+    ) Ownable() {
         lyraDepositAddress = _lyraDepositAddress;
         depositTokenAddress = _depositTokenAddress;
         transferCost = _transferCost;
@@ -71,8 +73,8 @@ contract LyraReceiver {
         }
     }
 
-    function deposit(address token, address userAddress) external {
-        uint256 allowance = IERC20(token).allowance(
+    function deposit(address userAddress) external {
+        uint256 allowance = IERC20(depositTokenAddress).allowance(
             receiverContract,
             address(this)
         );
@@ -83,7 +85,15 @@ contract LyraReceiver {
         try
             lyraDepositAddress.initiateDeposit(userAddress, allowance)
         {} catch {
-            IERC20(token).transfer(userAddress, allowance);
+            IERC20(depositTokenAddress).transfer(userAddress, allowance);
         }
+    }
+
+    function rescueTokens(address token, address to, uint256 amount) onlyOwner external  {
+        IERC20(token).transfer(to, amount);
+    }
+
+    function rescueEth(address payable to, uint256 amount) onlyOwner external {
+        to.transfer(amount);
     }
 }
