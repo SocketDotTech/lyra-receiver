@@ -8,14 +8,23 @@ interface ILyraDeposit {
     function initiateDeposit(address beneficiary, uint256 amountQuote) external;
 }
 
-interface UniswapRouter {
-    function swapExactTokensForTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external returns (uint256[] memory amounts);
+interface UniswapRouterV3 {
+    function exactInputSingle(ExactInputSingleParams calldata params)
+        external
+        payable
+        returns (uint256 amountOut);
+
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
 }
 
 contract LyraReceiver is Ownable {
@@ -23,19 +32,16 @@ contract LyraReceiver is Ownable {
     ILyraDeposit public lyraDepositAddress;
     address public depositTokenAddress;
     address public receiverContract;
-    UniswapRouter public uniswapRouter;
-    uint256 public transferCost;
+    UniswapRouterV3 public uniswapRouter;
 
     constructor(
         ILyraDeposit _lyraDepositAddress,
         address _depositTokenAddress,
         address _receiverContract,
-        uint256 _transferCost,
-        UniswapRouter _uniswapRouter
+        UniswapRouterV3 _uniswapRouter
     ) Ownable() {
         lyraDepositAddress = _lyraDepositAddress;
         depositTokenAddress = _depositTokenAddress;
-        transferCost = _transferCost;
         receiverContract = _receiverContract;
         uniswapRouter = _uniswapRouter;
     }
@@ -50,24 +56,26 @@ contract LyraReceiver is Ownable {
             address(this)
         );
         IERC20(token).approve(address(uniswapRouter), allowance);
-        address[] memory path = new address[](2);
-        path[0] = token;
-        path[1] = depositTokenAddress;
+
         try
-            uniswapRouter.swapExactTokensForTokens(
-                allowance,
-                minAmountOut,
-                path,
-                address(this),
-                block.timestamp
+            uniswapRouter.exactInputSingle(
+                UniswapRouterV3.ExactInputSingleParams(
+                    token,
+                    depositTokenAddress,
+                    3000,
+                    address(this),
+                    block.timestamp,
+                    allowance,
+                    minAmountOut,
+                    0
+                )
             )
-        returns (uint256[] memory amounts) {
-            uint256 depositAmount = amounts[1];
+        returns (uint256 amountOut) {
             IERC20(depositTokenAddress).approve(
                 address(lyraDepositAddress),
-                depositAmount
+                amountOut
             );
-            lyraDepositAddress.initiateDeposit(userAddress, depositAmount);
+            lyraDepositAddress.initiateDeposit(userAddress, amountOut);
         } catch {
             IERC20(token).transfer(userAddress, allowance);
         }
